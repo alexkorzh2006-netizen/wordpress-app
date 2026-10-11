@@ -1,0 +1,59 @@
+#cloud-config
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - ca-certificates
+  - curl
+  - docker.io
+  - docker-compose-v2
+  - openssl
+
+write_files:
+  - path: /opt/wordpress/Dockerfile
+    owner: root:root
+    permissions: "0644"
+    encoding: b64
+    content: ${dockerfile_b64}
+
+  - path: /opt/wordpress/docker-compose.yml
+    owner: root:root
+    permissions: "0644"
+    encoding: b64
+    content: ${docker_compose_b64}
+
+runcmd:
+  - [systemctl, enable, --now, docker]
+  - [usermod, -aG, docker, ubuntu]
+  - |
+      set -eu
+      umask 077
+      database_password="$(openssl rand -hex 32)"
+      root_password="$(openssl rand -hex 32)"
+      wordpress_url="$(printf '%s' '${wordpress_url_b64}' | base64 --decode)"
+      wordpress_site_title="$(printf '%s' '${wordpress_site_title_b64}' | base64 --decode)"
+      wordpress_admin_user="$(printf '%s' '${wordpress_admin_user_b64}' | base64 --decode)"
+      wordpress_admin_password="$(printf '%s' '${wordpress_admin_password_b64}' | base64 --decode)"
+      wordpress_admin_email="$(printf '%s' '${wordpress_admin_email_b64}' | base64 --decode)"
+
+      cat > /opt/wordpress/.env <<EOF
+      WORDPRESS_VERSION=7.1.2
+      WORDPRESS_PORT=80
+      WORDPRESS_URL=$wordpress_url
+      WORDPRESS_TITLE=$wordpress_site_title
+      WORDPRESS_ADMIN_USER=$wordpress_admin_user
+      WORDPRESS_ADMIN_PASSWORD=$wordpress_admin_password
+      WORDPRESS_ADMIN_EMAIL=$wordpress_admin_email
+      MARIADB_DATABASE=wordpress
+      MARIADB_USER=wordpress
+      MARIADB_PASSWORD=$database_password
+      MARIADB_ROOT_PASSWORD=$root_password
+      EOF
+
+      chown root:root /opt/wordpress/.env
+      chmod 0600 /opt/wordpress/.env
+  - [sh, -c, "cd /opt/wordpress && docker compose up --detach --build database wordpress"]
+  - [sh, -c, "cd /opt/wordpress && docker compose run --rm --no-deps wordpress-init"]
+
+final_message: "Docker, MariaDB, and WordPress bootstrap completed after $UPTIME seconds."

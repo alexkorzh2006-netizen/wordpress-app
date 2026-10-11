@@ -1,0 +1,12 @@
+aws_region   = "us-east-1"
+project_name = "wordpress-host"
+instance_type = "t3.small"
+public_subnet_cidrs = ["10.20.1.0/24", "10.20.2.0/24"]
+
+wordpress_site_title  = "Test WordPress"
+wordpress_admin_user  = "wpadmin"
+wordpress_admin_email = "admin@example.com"
+
+# Use an existing EC2 key pair and restrict SSH to your own public IP.
+# key_name          = "my-key-pair"
+# ssh_allowed_cidrs = ["203.0.113.10/32"]
