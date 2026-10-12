@@ -13,19 +13,14 @@ output "private_ip" {
   value       = aws_instance.web.private_ip
 }
 
-output "vpc_id" {
-  description = "ID of the dedicated VPC."
-  value       = aws_vpc.main.id
-}
-
-output "public_subnet_ids" {
-  description = "IDs of the public subnets in both Availability Zones."
-  value       = aws_subnet.public[*].id
-}
-
 output "wordpress_url" {
-  description = "URL of the initialized WordPress site."
-  value       = "http://${aws_eip.instance.public_ip}"
+  description = "Private WordPress URL, reachable from the VPC or OpenVPN tunnel."
+  value       = "http://${aws_instance.web.private_ip}"
+}
+
+output "openvpn_endpoint" {
+  description = "Stable public endpoint used by OpenVPN clients."
+  value       = "${aws_eip.instance.public_ip}:${data.terraform_remote_state.networking.outputs.vpn_port}"
 }
 
 output "wordpress_admin_user" {
@@ -38,3 +33,4 @@ output "wordpress_admin_password" {
   value       = random_password.wordpress_admin.result
   sensitive   = true
 }
+

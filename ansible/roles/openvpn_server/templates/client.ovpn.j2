@@ -1,0 +1,27 @@
+client
+dev tun
+proto {{ openvpn_protocol }}
+remote {{ openvpn_endpoint }} {{ openvpn_port }}
+resolv-retry infinite
+nobind
+persist-key
+persist-tun
+remote-cert-tls server
+verify-x509-name {{ openvpn_server_name }} name
+tls-version-min 1.2
+data-ciphers AES-256-GCM:AES-128-GCM:CHACHA20-POLY1305
+auth SHA256
+verb 3
+
+<ca>
+{{ openvpn_ca.content | b64decode | trim }}
+</ca>
+<cert>
+{{ openvpn_client_certificate.stdout | trim }}
+</cert>
+<key>
+{{ openvpn_client_private_key.content | b64decode | trim }}
+</key>
+<tls-crypt>
+{{ openvpn_tls_crypt.content | b64decode | trim }}
+</tls-crypt>

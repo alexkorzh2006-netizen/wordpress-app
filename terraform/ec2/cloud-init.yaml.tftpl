@@ -1,0 +1,38 @@
+#cloud-config
+
+write_files:
+  - path: /usr/local/sbin/install-wordpress.sh
+    owner: root:root
+    permissions: '0700'
+    encoding: b64
+    content: ${install_script_b64}
+  - path: /run/wordpress-bootstrap/site-title
+    owner: root:root
+    permissions: '0600'
+    encoding: b64
+    content: ${wordpress_title_b64}
+  - path: /run/wordpress-bootstrap/admin-user
+    owner: root:root
+    permissions: '0600'
+    encoding: b64
+    content: ${wordpress_admin_user_b64}
+  - path: /run/wordpress-bootstrap/admin-email
+    owner: root:root
+    permissions: '0600'
+    encoding: b64
+    content: ${wordpress_admin_email_b64}
+  - path: /run/wordpress-bootstrap/admin-password
+    owner: root:root
+    permissions: '0600'
+    encoding: b64
+    content: ${wordpress_admin_password_b64}
+  - path: /run/wordpress-bootstrap/database-password
+    owner: root:root
+    permissions: '0600'
+    encoding: b64
+    content: ${wordpress_database_password_b64}
+
+runcmd:
+  - [/usr/local/sbin/install-wordpress.sh]
+
+final_message: "WordPress bootstrap finished after $UPTIME seconds."

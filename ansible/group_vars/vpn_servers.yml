@@ -1,0 +1,12 @@
+---
+ansible_user: ubuntu
+
+# Add the same trusted public CIDR values used by Terraform in
+# vpn_allowed_cidrs and ssh_allowed_cidrs. Never use 0.0.0.0/0.
+openvpn_admin_cidrs: []
+
+openvpn_private_network: 10.20.0.0
+openvpn_private_netmask: 255.255.0.0
+
+openvpn_clients:
+  - admin

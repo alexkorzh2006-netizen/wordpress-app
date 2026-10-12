@@ -1,0 +1,27 @@
+---
+- name: Read certificate for {{ openvpn_client_name }}
+  ansible.builtin.command:
+    argv:
+      - openssl
+      - x509
+      - -in
+      - "{{ openvpn_easyrsa_dir }}/pki/issued/{{ openvpn_client_name }}.crt"
+      - -outform
+      - PEM
+  register: openvpn_client_certificate
+  changed_when: false
+
+- name: Read private key for {{ openvpn_client_name }}
+  ansible.builtin.slurp:
+    src: "{{ openvpn_easyrsa_dir }}/pki/private/{{ openvpn_client_name }}.key"
+  register: openvpn_client_private_key
+  no_log: true
+
+- name: Write local profile for {{ openvpn_client_name }}
+  ansible.builtin.template:
+    src: client.ovpn.j2
+    dest: "{{ openvpn_client_output_dir }}/{{ inventory_hostname }}-{{ openvpn_client_name }}.ovpn"
+    mode: "0600"
+  become: false
+  delegate_to: localhost
+  no_log: true

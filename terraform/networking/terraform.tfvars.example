@@ -1,0 +1,13 @@
+aws_region            = "us-east-1"
+aws_profile           = "default"
+project_name          = "wordpress-host"
+vpc_cidr              = "10.20.0.0/16"
+public_subnet_cidrs   = ["10.20.1.0/24", "10.20.2.0/24"]
+
+# Keep SSH closed by default. Configure access locally when needed.
+# ssh_allowed_cidrs = []
+
+# Set both values to your current trusted public IP with a /32 suffix while
+# bootstrapping Ansible. Never use 0.0.0.0/0.
+# ssh_allowed_cidrs = ["YOUR_PUBLIC_IP/32"]
+# vpn_allowed_cidrs = ["YOUR_PUBLIC_IP/32"]
