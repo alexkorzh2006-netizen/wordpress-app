@@ -1,4 +1,10 @@
 ---
+roles:
+  - name: kyl191.openvpn
+    src: https://github.com/kyl191/ansible-role-openvpn.git
+    version: v3.2.0
+
 collections:
   - name: amazon.aws
+  - name: ansible.posix
   - name: community.general

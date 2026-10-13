@@ -2,10 +2,12 @@ aws_region     = "us-east-1"
 aws_profile    = "default"
 project_name   = "wordpress-host"
 instance_type = "t3.small"
-# key_name    = "your-existing-ec2-key-pair"
+vpn_instance_type = "t3.micro"
 
 wordpress_site_title  = "Test WordPress"
 wordpress_admin_email = "admin@example.com"
+wordpress_domain      = "wordpress.example.com"
+cloudflare_zone_id    = "0123456789abcdef0123456789abcdef"
+certificate_email     = "certificates@example.com"
 
-# The default points to ../networking/terraform.tfstate.
-# networking_state_path = "../networking/terraform.tfstate"
+

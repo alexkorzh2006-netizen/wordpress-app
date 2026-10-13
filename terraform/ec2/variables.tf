@@ -17,9 +17,15 @@ variable "project_name" {
 }
 
 variable "instance_type" {
-  description = "EC2 instance type."
+  description = "EC2 instance type for WordPress and MariaDB."
   type        = string
   default     = "t3.small"
+}
+
+variable "vpn_instance_type" {
+  description = "EC2 instance type for the OpenVPN gateway."
+  type        = string
+  default     = "t3.micro"
 }
 
 variable "key_name" {
@@ -51,5 +57,38 @@ variable "wordpress_admin_email" {
   description = "WordPress administrator email address."
   type        = string
   default     = "admin@example.com"
+}
+
+variable "wordpress_domain" {
+  description = "Fully qualified Cloudflare DNS name used for WordPress and its TLS certificate."
+  type        = string
+
+  validation {
+    condition = length(split(".", var.wordpress_domain)) >= 2 && alltrue([
+      for label in split(".", var.wordpress_domain) :
+      can(regex("^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$", label))
+    ])
+    error_message = "wordpress_domain must be a fully qualified domain name such as wordpress.example.com."
+  }
+}
+
+variable "cloudflare_zone_id" {
+  description = "Cloudflare Zone ID containing wordpress_domain. This identifier is not an API credential."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[0-9a-fA-F]{32}$", var.cloudflare_zone_id))
+    error_message = "cloudflare_zone_id must be the 32-character Zone ID from Cloudflare."
+  }
+}
+
+variable "certificate_email" {
+  description = "Email address registered with Let's Encrypt for certificate notices."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[^@[:space:]]+@[^@[:space:]]+\\.[^@[:space:]]+$", var.certificate_email))
+    error_message = "certificate_email must be a valid email address."
+  }
 }
 

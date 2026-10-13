@@ -1,0 +1,46 @@
+---
+ansible_user: ubuntu
+ansible_ssh_private_key_file: "{{ lookup('env', 'HOME') }}/.ssh/wordpress-host-key.pem"
+
+# The WordPress instance has no public SSH ingress. Ansible reaches its private
+# address through the OpenVPN EC2 instance acting as an SSH jump host.
+ec2_terraform_directory: "{{ playbook_dir }}/../terraform/ec2"
+vpn_bastion_public_ip: >-
+  {{
+    lookup(
+      'ansible.builtin.pipe',
+      'terraform -chdir=' ~ (ec2_terraform_directory | quote) ~
+      ' output -raw vpn_public_ip'
+    ) | trim
+  }}
+ansible_ssh_common_args: >-
+  -o ProxyCommand="ssh -q -i {{ ansible_ssh_private_key_file }}
+  -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new
+  -W %h:%p ubuntu@{{ vpn_bastion_public_ip }}"
+  -o StrictHostKeyChecking=accept-new
+
+wordpress_domain: >-
+  {{
+    lookup(
+      'ansible.builtin.pipe',
+      'terraform -chdir=' ~ (ec2_terraform_directory | quote) ~
+      ' output -raw wordpress_domain'
+    ) | trim
+  }}
+wordpress_certificate_email: >-
+  {{
+    lookup(
+      'ansible.builtin.pipe',
+      'terraform -chdir=' ~ (ec2_terraform_directory | quote) ~
+      ' output -raw wordpress_certificate_email'
+    ) | trim
+  }}
+
+# Export CLOUDFLARE_API_TOKEN before running Ansible. The token is copied to a
+# root-only file on WordPress because Certbot needs it for automatic renewals.
+cloudflare_api_token: "{{ lookup('env', 'CLOUDFLARE_API_TOKEN') }}"
+certbot_cloudflare_credentials_directory: /root/.secrets/certbot
+certbot_cloudflare_credentials_file: /root/.secrets/certbot/cloudflare.ini
+certbot_dns_propagation_seconds: 60
+wordpress_root: /var/www/html
+wordpress_ready_file: /var/lib/wordpress-installation-complete

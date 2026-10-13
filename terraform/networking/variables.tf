@@ -33,6 +33,20 @@ variable "public_subnet_cidrs" {
   }
 }
 
+variable "vpn_private_ip" {
+  description = "Fixed private IPv4 address assigned to the OpenVPN instance."
+  type        = string
+  default     = "10.20.1.10"
+
+  validation {
+    condition = (
+      can(cidrhost("${var.vpn_private_ip}/${split("/", var.public_subnet_cidrs[0])[1]}", 0)) &&
+      cidrhost("${var.vpn_private_ip}/${split("/", var.public_subnet_cidrs[0])[1]}", 0) == cidrhost(var.public_subnet_cidrs[0], 0)
+    )
+    error_message = "The OpenVPN private IP must be a valid host address inside the first public subnet."
+  }
+}
+
 variable "ssh_allowed_cidrs" {
   description = "CIDR blocks allowed to use SSH. Leave empty to keep port 22 closed."
   type        = set(string)

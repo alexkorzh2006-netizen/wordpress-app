@@ -1,97 +1,77 @@
-# OpenVPN access for the WordPress EC2 instance
+# OpenVPN and WordPress TLS configuration
 
-This directory configures the existing Ubuntu EC2 instance as an OpenVPN
-server. WordPress remains on the same instance and is opened by its private
-`10.20.x.x` address after the VPN connects.
+This directory configures the dedicated OpenVPN instance and installs the HTTPS
+certificate on the separate WordPress/MariaDB instance created by Terraform.
 
-## Security model
+The AWS inventory plugin discovers running instances tagged
+`Project=wordpress-host` and creates groups from their `Role` tags. This gives
+the inventory groups `role_openvpn` and `role_wordpress`; the playbook targets
+`role_openvpn` in its first play. The downloaded `kyl191.openvpn` role installs
+the service, generates client certificates, pushes the `10.20.0.0/16` VPC
+route, and fetches the client profile. Project-owned post-tasks replace the
+role's unrestricted UFW entry with rules limited to the CIDRs read from
+Terraform outputs.
 
-- AWS exposes UDP `1194` only to CIDRs listed in `vpn_allowed_cidrs`.
-- AWS exposes HTTP/HTTPS only inside the `10.20.0.0/16` VPC.
-- UFW allows HTTP/HTTPS only on the `tun0` VPN interface.
-- OpenVPN authenticates every client with a separate certificate.
-- The role changes WordPress `home` and `siteurl` to the EC2 private address.
-- No inbound Terraform rule uses `0.0.0.0/0`. The unrestricted egress rule is
-  outbound traffic and does not expose the instance.
+The second play targets `role_wordpress` through the VPN instance as an SSH
+jump host. It installs Certbot, uses the Cloudflare DNS plugin to request an
+HTTPS certificate, enables automatic renewal, and updates WordPress to use its
+domain.
 
-The public Elastic IP is used only to establish the VPN tunnel. The browser
-then reaches the WordPress private IP through that encrypted tunnel.
+## Install dependencies
 
-## 1. Configure the AWS entry rules
-
-Create or edit `terraform/networking/terraform.tfvars`:
-
-```hcl
-vpn_allowed_cidrs = ["YOUR_CURRENT_PUBLIC_IP/32"]
-ssh_allowed_cidrs = ["YOUR_CURRENT_PUBLIC_IP/32"]
-```
-
-The SSH rule is required for the first Ansible run. Both variables reject
-`0.0.0.0/0`. Also set an existing EC2 key-pair name in
-`terraform/ec2/terraform.tfvars`:
-
-```hcl
-key_name = "your-key-pair-name"
-```
-
-Apply networking before EC2 because EC2 reads the networking state:
+From this directory:
 
 ```bash
-terraform -chdir=terraform/networking apply
-terraform -chdir=terraform/ec2 apply
-```
-
-## 2. Configure Ansible
-
-Put the same `/32` CIDR in `group_vars/vpn_servers.yml`:
-
-```yaml
-openvpn_admin_cidrs:
-  - YOUR_CURRENT_PUBLIC_IP/32
-```
-
-Create a Python environment and install the required collections:
-
-```bash
-cd ansible
 python3 -m venv .venv
-. .venv/bin/activate
+source .venv/bin/activate
+python -m pip install --upgrade pip
 python -m pip install ansible boto3 botocore
-ansible-galaxy collection install -r requirements.yml
+ansible-galaxy install -r requirements.yml
 ```
 
-The dynamic inventory discovers the instance by its
-`Name=wordpress-host-ec2` AWS tag, so its IP is not hardcoded in inventory.
-Check discovery:
+The pinned role and collections are declared in `requirements.yml` and are
+downloaded under `.galaxy/`, which is ignored by Git.
+
+## Run
+
+Add the VPN Elastic IP to `known_hosts` from the repository root:
+
+```bash
+VPN_IP="$(terraform -chdir=terraform/ec2 output -raw vpn_public_ip)"
+ssh-keygen -R "$VPN_IP" 2>/dev/null || true
+ssh-keyscan -H "$VPN_IP" >> "$HOME/.ssh/known_hosts"
+```
+
+Then run from `ansible/`:
 
 ```bash
 ansible-inventory --graph
 ```
 
-Add the instance SSH host key, then run the role using the private key that
-matches `key_name`:
+The inventory uses AWS profile `default`. Group variables use
+`~/.ssh/wordpress-host-key.pem` and read `vpn_allowed_cidrs` and
+`ssh_allowed_cidrs` directly from the applied networking Terraform state. They
+also read the domain, certificate email, and VPN public IP from the EC2 state.
+`CLOUDFLARE_API_TOKEN` must be exported for the WordPress certificate play:
 
 ```bash
-ssh-keyscan -H "$(terraform -chdir=../terraform/ec2 output -raw public_ip)" >> ~/.ssh/known_hosts
-ansible-playbook playbook.yml --private-key ~/.ssh/your-key.pem
+read -rsp "Cloudflare API token: " CLOUDFLARE_API_TOKEN
+export CLOUDFLARE_API_TOKEN
+echo
+ansible-playbook playbook.yml
 ```
 
-Ansible writes the client profile to
-`ansible/client-configs/wordpress-host-ec2-admin.ovpn`. That directory is
-ignored by Git because the profile contains a private client key.
+The generated profile is:
 
-## 3. Connect and open WordPress
+```text
+client-configs/admin-wordpress-openvpn.ovpn
+```
 
-Import the generated `.ovpn` file into an OpenVPN client and connect. Then:
+It contains a private client key. Do not commit or share it.
+
+After importing the profile and connecting, browse to the private URL returned
+by:
 
 ```bash
-terraform -chdir=terraform/ec2 output -raw wordpress_url
+terraform -chdir=../terraform/ec2 output -raw wordpress_url
 ```
-
-Open that private URL in the browser. If your public IP changes, update the
-trusted `/32` value in Terraform and `group_vars/vpn_servers.yml`, then apply
-networking and rerun Ansible.
-
-References: [OpenVPN 2.6 manual](https://openvpn.net/community-docs/community-articles/openvpn-2-6-manual.html),
-[AWS security-group rules](https://docs.aws.amazon.com/vpc/latest/userguide/security-group-rules.html),
-and [Ansible roles](https://docs.ansible.com/projects/ansible-core/stable-2.21/playbook_guide/playbooks_reuse_roles.html).

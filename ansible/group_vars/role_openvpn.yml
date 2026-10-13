@@ -1,0 +1,52 @@
+---
+ansible_user: ubuntu
+ansible_ssh_private_key_file: "{{ lookup('env', 'HOME') }}/.ssh/wordpress-host-key.pem"
+
+# Read the trusted CIDRs from the applied networking Terraform state. Configure
+# these values once in terraform/networking/terraform.tfvars, then apply that
+# state before running this playbook.
+networking_terraform_directory: "{{ playbook_dir }}/../terraform/networking"
+openvpn_admin_cidrs: >-
+  {{
+    lookup(
+      'ansible.builtin.pipe',
+      'terraform -chdir=' ~ (networking_terraform_directory | quote) ~
+      ' output -json vpn_allowed_cidrs'
+    ) | from_json
+  }}
+openvpn_ssh_allowed_cidrs: >-
+  {{
+    lookup(
+      'ansible.builtin.pipe',
+      'terraform -chdir=' ~ (networking_terraform_directory | quote) ~
+      ' output -json ssh_allowed_cidrs'
+    ) | from_json
+  }}
+
+openvpn_clients:
+  - admin
+
+# Settings passed to the downloaded kyl191.openvpn role.
+openvpn_port: 1194
+openvpn_proto: udp
+openvpn_dualstack: false
+openvpn_server_hostname: "{{ ansible_host }}"
+openvpn_server_network: 10.8.0.0
+openvpn_server_netmask: 255.255.255.0
+openvpn_server_ipv6_network: ""
+openvpn_redirect_gateway: ""
+openvpn_set_dns: false
+openvpn_client_register_dns: false
+openvpn_push:
+  - route 10.20.0.0 255.255.0.0
+openvpn_firewall: ufw
+openvpn_manage_firewall_rules: true
+openvpn_manage_sysctl: true
+openvpn_no_nat: false
+openvpn_masquerade_not_snat: false
+openvpn_snat_source_ipv4: "{{ ansible_default_ipv4.address }}"
+openvpn_use_crl: true
+openvpn_fetch_client_configs: true
+openvpn_fetch_client_configs_dir: "{{ playbook_dir }}/client-configs"
+openvpn_fetch_client_configs_per_user_dir: false
+openvpn_ovpn_server_name: wordpress-openvpn

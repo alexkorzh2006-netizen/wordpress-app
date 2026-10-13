@@ -100,31 +100,22 @@ if [ -z "$wordpress_url" ]; then
     exit 1
   fi
 
-  public_ip=""
+  private_ip="$(curl --fail --silent --show-error \
+    --connect-timeout 5 \
+    --header "X-aws-ec2-metadata-token: $metadata_token" \
+    http://169.254.169.254/latest/meta-data/local-ipv4)"
 
-  for attempt in $(seq 1 24); do
-    if public_ip="$(curl --fail --silent \
-      --connect-timeout 5 \
-      --header "X-aws-ec2-metadata-token: $metadata_token" \
-      http://169.254.169.254/latest/meta-data/public-ipv4)" && [ -n "$public_ip" ]; then
-      break
-    fi
-
-    echo "Waiting for the EC2 public IP ($attempt/24)..."
-    sleep 5
-  done
-
-  if [ -z "$public_ip" ]; then
-    echo "EC2 public IP is unavailable. Pass the URL explicitly."
+  if [ -z "$private_ip" ]; then
+    echo "EC2 private IP is unavailable. Pass the URL explicitly."
     exit 1
   fi
 
-  wordpress_url="http://$public_ip"
+  wordpress_url="http://$private_ip"
 fi
 
 if [[ ! "$wordpress_url" =~ ^https?://[^/]+/?$ ]]; then
   echo "Could not determine the WordPress URL."
-  echo "Run: sudo ./install-wordpress.sh http://PUBLIC_IP"
+  echo "Run: sudo ./install-wordpress.sh http://PRIVATE_IP"
   exit 1
 fi
 

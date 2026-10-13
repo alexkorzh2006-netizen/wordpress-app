@@ -1,14 +1,17 @@
 ---
 plugin: amazon.aws.aws_ec2
+profile: default
 regions:
   - us-east-1
 filters:
-  tag:Name: wordpress-host-ec2
+  tag:Project: wordpress-host
   instance-state-name: running
 hostnames:
   - tag:Name
 compose:
-  ansible_host: public_ip_address
-groups:
-  vpn_servers: "true"
+  ansible_host: "(ec2_tags.Role == 'openvpn') | ternary(public_ip_address, private_ip_address)"
+keyed_groups:
+  - key: ec2_tags.Role
+    prefix: role
+    separator: "_"
 strict: true

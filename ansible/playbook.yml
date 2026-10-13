@@ -1,8 +1,168 @@
 ---
-- name: Configure the WordPress OpenVPN gateway
-  hosts: vpn_servers
+- name: Configure the OpenVPN gateway for WordPress
+  hosts: role_openvpn
   become: true
   gather_facts: true
 
+  pre_tasks:
+    - name: Validate the restricted OpenVPN entry configuration
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.os_family == "Debian"
+          - openvpn_admin_cidrs | length > 0
+          - openvpn_ssh_allowed_cidrs | length > 0
+          - "'0.0.0.0/0' not in openvpn_admin_cidrs"
+          - "'0.0.0.0/0' not in openvpn_ssh_allowed_cidrs"
+          - openvpn_clients | length > 0
+          - openvpn_clients | reject('match', '^[A-Za-z0-9_.-]+$') | list | length == 0
+        fail_msg: >-
+          Ubuntu/Debian, at least one client, and restricted VPN and SSH CIDRs
+          are required. 0.0.0.0/0 is intentionally forbidden.
+
   roles:
-    - role: openvpn_server
+    - role: kyl191.openvpn
+
+  post_tasks:
+    - name: Remove the role's unrestricted OpenVPN firewall rule
+      community.general.ufw:
+        rule: allow
+        direction: in
+        to_port: "{{ openvpn_port | string }}"
+        proto: "{{ openvpn_proto }}"
+        delete: true
+
+    - name: Allow OpenVPN only from trusted public networks
+      community.general.ufw:
+        rule: allow
+        from_ip: "{{ item }}"
+        to_port: "{{ openvpn_port | string }}"
+        proto: "{{ openvpn_proto }}"
+        comment: Restricted OpenVPN entry
+      loop: "{{ openvpn_admin_cidrs }}"
+
+    - name: Preserve bootstrap SSH only for trusted public networks
+      community.general.ufw:
+        rule: allow
+        from_ip: "{{ item }}"
+        to_port: "22"
+        proto: tcp
+        comment: Restricted Ansible SSH
+      loop: "{{ openvpn_ssh_allowed_cidrs }}"
+
+    - name: Set the default incoming firewall policy
+      community.general.ufw:
+        direction: incoming
+        default: deny
+
+    - name: Set the default outgoing firewall policy
+      community.general.ufw:
+        direction: outgoing
+        default: allow
+
+- name: Configure the WordPress domain and HTTPS certificate
+  hosts: role_wordpress
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Validate the WordPress TLS configuration
+      ansible.builtin.assert:
+        that:
+          - wordpress_domain | length > 0
+          - wordpress_certificate_email | length > 0
+          - cloudflare_api_token | length > 0
+        fail_msg: >-
+          WordPress domain, certificate email, and CLOUDFLARE_API_TOKEN are
+          required before Certbot can request the certificate.
+      no_log: true
+
+    - name: Wait for the cloud-init WordPress installation
+      ansible.builtin.wait_for:
+        path: "{{ wordpress_ready_file }}"
+        state: present
+        timeout: 1200
+
+  tasks:
+    - name: Install Certbot with Apache and Cloudflare support
+      ansible.builtin.apt:
+        name:
+          - certbot
+          - python3-certbot-apache
+          - python3-certbot-dns-cloudflare
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Create the root-only Certbot credentials directory
+      ansible.builtin.file:
+        path: "{{ certbot_cloudflare_credentials_directory }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: Install the Cloudflare API token for Certbot renewal
+      ansible.builtin.copy:
+        content: "dns_cloudflare_api_token = {{ cloudflare_api_token }}\n"
+        dest: "{{ certbot_cloudflare_credentials_file }}"
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+
+    - name: Request and install the HTTPS certificate
+      ansible.builtin.command:
+        argv:
+          - certbot
+          - run
+          - --non-interactive
+          - --agree-tos
+          - --email
+          - "{{ wordpress_certificate_email }}"
+          - --authenticator
+          - dns-cloudflare
+          - --dns-cloudflare-credentials
+          - "{{ certbot_cloudflare_credentials_file }}"
+          - --dns-cloudflare-propagation-seconds
+          - "{{ certbot_dns_propagation_seconds | string }}"
+          - --installer
+          - apache
+          - --redirect
+          - --domain
+          - "{{ wordpress_domain }}"
+        creates: "/etc/letsencrypt/live/{{ wordpress_domain }}/fullchain.pem"
+
+    - name: Enable automatic certificate renewal
+      ansible.builtin.systemd_service:
+        name: certbot.timer
+        enabled: true
+        state: started
+
+    - name: Configure WordPress to use its HTTPS domain
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/wp
+          - option
+          - update
+          - "{{ item }}"
+          - "https://{{ wordpress_domain }}"
+          - --allow-root
+          - "--path={{ wordpress_root }}"
+      loop:
+        - home
+        - siteurl
+      register: wordpress_https_option_update
+      changed_when: "'Updated' in wordpress_https_option_update.stdout"
+
+    - name: Validate the Apache configuration
+      ansible.builtin.command:
+        argv:
+          - apache2ctl
+          - configtest
+      changed_when: false
+
+    - name: Reload Apache
+      ansible.builtin.systemd_service:
+        name: apache2
+        state: reloaded
+

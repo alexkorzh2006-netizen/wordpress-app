@@ -53,38 +53,20 @@ resource "aws_route_table_association" "public" {
   route_table_id = aws_route_table.public.id
 }
 
-resource "aws_security_group" "instance" {
-  name_prefix = "${var.project_name}-"
-  description = "Network access for the EC2 web server"
+resource "aws_security_group" "vpn" {
+  name_prefix = "${var.project_name}-vpn-"
+  description = "Public entry point for SSH and OpenVPN"
   vpc_id      = aws_vpc.main.id
 
   tags = {
-    Name = "${var.project_name}-sg"
+    Name = "${var.project_name}-vpn-sg"
   }
-}
-
-resource "aws_vpc_security_group_ingress_rule" "http_private" {
-  security_group_id = aws_security_group.instance.id
-  description       = "HTTP from the private VPC only"
-  cidr_ipv4         = var.vpc_cidr
-  from_port         = 80
-  to_port           = 80
-  ip_protocol       = "tcp"
-}
-
-resource "aws_vpc_security_group_ingress_rule" "https_private" {
-  security_group_id = aws_security_group.instance.id
-  description       = "HTTPS from the private VPC only"
-  cidr_ipv4         = var.vpc_cidr
-  from_port         = 443
-  to_port           = 443
-  ip_protocol       = "tcp"
 }
 
 resource "aws_vpc_security_group_ingress_rule" "openvpn" {
   for_each = var.vpn_allowed_cidrs
 
-  security_group_id = aws_security_group.instance.id
+  security_group_id = aws_security_group.vpn.id
   description       = "OpenVPN from an approved network"
   cidr_ipv4         = each.value
   from_port         = var.vpn_port
@@ -95,7 +77,7 @@ resource "aws_vpc_security_group_ingress_rule" "openvpn" {
 resource "aws_vpc_security_group_ingress_rule" "ssh" {
   for_each = var.ssh_allowed_cidrs
 
-  security_group_id = aws_security_group.instance.id
+  security_group_id = aws_security_group.vpn.id
   description       = "SSH from an approved network"
   cidr_ipv4         = each.value
   from_port         = 22
@@ -103,9 +85,53 @@ resource "aws_vpc_security_group_ingress_rule" "ssh" {
   ip_protocol       = "tcp"
 }
 
-resource "aws_vpc_security_group_egress_rule" "all" {
-  security_group_id = aws_security_group.instance.id
+resource "aws_vpc_security_group_egress_rule" "vpn_all" {
+  security_group_id = aws_security_group.vpn.id
   description       = "Allow all outbound traffic"
+  cidr_ipv4         = "0.0.0.0/0"
+  ip_protocol       = "-1"
+}
+
+resource "aws_security_group" "wordpress" {
+  name_prefix = "${var.project_name}-wordpress-"
+  description = "WordPress access from the OpenVPN gateway only"
+  vpc_id      = aws_vpc.main.id
+
+  tags = {
+    Name = "${var.project_name}-wordpress-sg"
+  }
+}
+
+resource "aws_vpc_security_group_ingress_rule" "wordpress_http_from_vpn" {
+  security_group_id = aws_security_group.wordpress.id
+  description       = "HTTP from the OpenVPN gateway"
+  cidr_ipv4         = "${var.vpn_private_ip}/32"
+  from_port         = 80
+  to_port           = 80
+  ip_protocol       = "tcp"
+}
+
+resource "aws_vpc_security_group_ingress_rule" "wordpress_https_from_vpn" {
+  security_group_id = aws_security_group.wordpress.id
+  description       = "HTTPS from the OpenVPN gateway"
+  cidr_ipv4         = "${var.vpn_private_ip}/32"
+  from_port         = 443
+  to_port           = 443
+  ip_protocol       = "tcp"
+}
+
+resource "aws_vpc_security_group_ingress_rule" "wordpress_ssh_from_vpn" {
+  security_group_id = aws_security_group.wordpress.id
+  description       = "SSH from the OpenVPN gateway"
+  cidr_ipv4         = "${var.vpn_private_ip}/32"
+  from_port         = 22
+  to_port           = 22
+  ip_protocol       = "tcp"
+}
+
+resource "aws_vpc_security_group_egress_rule" "wordpress_all" {
+  security_group_id = aws_security_group.wordpress.id
+  description       = "Allow outbound updates and package downloads"
   cidr_ipv4         = "0.0.0.0/0"
   ip_protocol       = "-1"
 }
