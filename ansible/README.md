@@ -1,21 +1,15 @@
-# OpenVPN and WordPress TLS configuration
+# OpenVPN configuration
 
-This directory configures the dedicated OpenVPN instance and installs the HTTPS
-certificate on the separate WordPress/MariaDB instance created by Terraform.
+This directory configures the dedicated OpenVPN instance. WordPress and its
+HTTPS certificate are installed by cloud-init independently of Ansible.
 
 The AWS inventory plugin discovers running instances tagged
-`Project=wordpress-host` and creates groups from their `Role` tags. This gives
-the inventory groups `role_openvpn` and `role_wordpress`; the playbook targets
-`role_openvpn` in its first play. The downloaded `kyl191.openvpn` role installs
+`Project=wordpress-host` and creates groups from their `Role` tags. The
+playbook targets `role_openvpn`. The downloaded `kyl191.openvpn` role installs
 the service, generates client certificates, pushes the `10.20.0.0/16` VPC
 route, and fetches the client profile. Project-owned post-tasks replace the
 role's unrestricted UFW entry with rules limited to the CIDRs read from
 Terraform outputs.
-
-The second play targets `role_wordpress` through the VPN instance as an SSH
-jump host. It installs Certbot, uses the Cloudflare DNS plugin to request an
-HTTPS certificate, enables automatic renewal, and updates WordPress to use its
-domain.
 
 ## Install dependencies
 
@@ -50,14 +44,9 @@ ansible-inventory --graph
 
 The inventory uses AWS profile `default`. Group variables use
 `~/.ssh/wordpress-host-key.pem` and read `vpn_allowed_cidrs` and
-`ssh_allowed_cidrs` directly from the applied networking Terraform state. They
-also read the domain, certificate email, and VPN public IP from the EC2 state.
-`CLOUDFLARE_API_TOKEN` must be exported for the WordPress certificate play:
+`ssh_allowed_cidrs` directly from the applied networking Terraform state:
 
 ```bash
-read -rsp "Cloudflare API token: " CLOUDFLARE_API_TOKEN
-export CLOUDFLARE_API_TOKEN
-echo
 ansible-playbook playbook.yml
 ```
 

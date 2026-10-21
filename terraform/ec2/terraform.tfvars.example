@@ -10,4 +10,6 @@ wordpress_domain      = "wordpress.example.com"
 cloudflare_zone_id    = "0123456789abcdef0123456789abcdef"
 certificate_email     = "certificates@example.com"
 
+# Keep the token out of this file. Export both CLOUDFLARE_API_TOKEN and
+# TF_VAR_cloudflare_api_token as described in the root README.
 

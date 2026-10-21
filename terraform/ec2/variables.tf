@@ -82,6 +82,18 @@ variable "cloudflare_zone_id" {
   }
 }
 
+variable "cloudflare_api_token" {
+  description = "Cloudflare API token used by the WordPress bootstrap to complete the DNS-01 challenge. Set with TF_VAR_cloudflare_api_token."
+  type        = string
+  sensitive   = true
+  nullable    = false
+
+  validation {
+    condition     = length(trimspace(var.cloudflare_api_token)) > 0
+    error_message = "cloudflare_api_token must not be empty."
+  }
+}
+
 variable "certificate_email" {
   description = "Email address registered with Let's Encrypt for certificate notices."
   type        = string

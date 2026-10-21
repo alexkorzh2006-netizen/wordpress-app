@@ -31,6 +31,21 @@ write_files:
     permissions: '0600'
     encoding: b64
     content: ${wordpress_database_password_b64}
+  - path: /run/wordpress-bootstrap/domain
+    owner: root:root
+    permissions: '0600'
+    encoding: b64
+    content: ${wordpress_domain_b64}
+  - path: /run/wordpress-bootstrap/certificate-email
+    owner: root:root
+    permissions: '0600'
+    encoding: b64
+    content: ${certificate_email_b64}
+  - path: /run/wordpress-bootstrap/cloudflare-api-token
+    owner: root:root
+    permissions: '0600'
+    encoding: b64
+    content: ${cloudflare_api_token_b64}
 
 runcmd:
   - [/usr/local/sbin/install-wordpress.sh]

@@ -5,6 +5,7 @@ set -Eeuo pipefail
 # https://developer.wordpress.org/advanced-administration/before-install/howto-install/
 # https://make.wordpress.org/cli/handbook/guides/installing/
 # https://developer.wordpress.org/cli/commands/core/install/
+# https://certbot-dns-cloudflare.readthedocs.io/
 
 exec > >(tee -a /var/log/wordpress-install.log) 2>&1
 trap 'echo "WordPress installation failed at line $LINENO"' ERR
@@ -22,6 +23,9 @@ wordpress_admin_user="${WORDPRESS_ADMIN_USER:-}"
 wordpress_admin_email="${WORDPRESS_ADMIN_EMAIL:-}"
 wordpress_admin_password="${WORDPRESS_ADMIN_PASSWORD:-}"
 database_password="${WORDPRESS_DB_PASSWORD:-}"
+wordpress_domain="${WORDPRESS_DOMAIN:-}"
+certificate_email="${CERTIFICATE_EMAIL:-}"
+cloudflare_api_token="${CLOUDFLARE_API_TOKEN:-}"
 
 if [ -r "$bootstrap_directory/site-title" ]; then
   wordpress_title="$(<"$bootstrap_directory/site-title")"
@@ -43,6 +47,18 @@ if [ -r "$bootstrap_directory/database-password" ]; then
   database_password="$(<"$bootstrap_directory/database-password")"
 fi
 
+if [ -r "$bootstrap_directory/domain" ]; then
+  wordpress_domain="$(<"$bootstrap_directory/domain")"
+fi
+
+if [ -r "$bootstrap_directory/certificate-email" ]; then
+  certificate_email="$(<"$bootstrap_directory/certificate-email")"
+fi
+
+if [ -r "$bootstrap_directory/cloudflare-api-token" ]; then
+  cloudflare_api_token="$(<"$bootstrap_directory/cloudflare-api-token")"
+fi
+
 wordpress_title="${wordpress_title:-Test WordPress}"
 wordpress_admin_user="${wordpress_admin_user:-wpadmin}"
 wordpress_admin_email="${wordpress_admin_email:-admin@example.com}"
@@ -50,8 +66,9 @@ wordpress_admin_email="${wordpress_admin_email:-admin@example.com}"
 wordpress_root="/var/www/html"
 database_name="wordpress"
 database_user="wordpress"
-credentials_file="/root/wordpress-credentials.txt"
 completion_file="/var/lib/wordpress-installation-complete"
+certbot_credentials_directory="/root/.secrets/certbot"
+certbot_credentials_file="$certbot_credentials_directory/cloudflare.ini"
 wp_cli_directory=""
 
 cleanup() {
@@ -64,8 +81,12 @@ trap cleanup EXIT
 
 if [ -f "$completion_file" ]; then
   echo "WordPress is already installed."
-  echo "Credentials: $credentials_file"
   exit 0
+fi
+
+if [ -z "$wordpress_domain" ] || [ -z "$certificate_email" ] || [ -z "$cloudflare_api_token" ]; then
+  echo "WORDPRESS_DOMAIN, CERTIFICATE_EMAIL, and CLOUDFLARE_API_TOKEN are required."
+  exit 1
 fi
 
 umask 027
@@ -76,6 +97,7 @@ apt-get -o DPkg::Lock::Timeout=120 upgrade -y
 apt-get -o DPkg::Lock::Timeout=120 install -y \
   apache2 \
   ca-certificates \
+  certbot \
   curl \
   gnupg \
   libapache2-mod-php \
@@ -88,7 +110,9 @@ apt-get -o DPkg::Lock::Timeout=120 install -y \
   php-mbstring \
   php-mysql \
   php-xml \
-  php-zip
+  php-zip \
+  python3-certbot-apache \
+  python3-certbot-dns-cloudflare
 
 if [ -z "$wordpress_url" ]; then
   if ! metadata_token="$(curl --fail --silent --show-error \
@@ -192,17 +216,22 @@ php -d memory_limit=512M /usr/local/bin/wp config shuffle-salts \
   --allow-root \
   --path="$wordpress_root"
 
-php -d memory_limit=512M /usr/local/bin/wp core install \
+if ! php -d memory_limit=512M /usr/local/bin/wp core is-installed \
   --allow-root \
-  --path="$wordpress_root" \
-  --url="$wordpress_url" \
-  --title="$wordpress_title" \
-  --admin_user="$wordpress_admin_user" \
-  --admin_password="$wordpress_admin_password" \
-  --admin_email="$wordpress_admin_email"
+  --path="$wordpress_root"; then
+  php -d memory_limit=512M /usr/local/bin/wp core install \
+    --allow-root \
+    --path="$wordpress_root" \
+    --url="$wordpress_url" \
+    --title="$wordpress_title" \
+    --admin_user="$wordpress_admin_user" \
+    --admin_password="$wordpress_admin_password" \
+    --admin_email="$wordpress_admin_email"
+fi
 
-cat > /etc/apache2/sites-available/wordpress.conf <<'APACHE_CONFIG'
+cat > /etc/apache2/sites-available/wordpress.conf <<APACHE_CONFIG
 <VirtualHost *:80>
+    ServerName $wordpress_domain
     DocumentRoot /var/www/html
 
     <Directory /var/www/html>
@@ -211,8 +240,8 @@ cat > /etc/apache2/sites-available/wordpress.conf <<'APACHE_CONFIG'
         Require all granted
     </Directory>
 
-    ErrorLog ${APACHE_LOG_DIR}/wordpress-error.log
-    CustomLog ${APACHE_LOG_DIR}/wordpress-access.log combined
+    ErrorLog \${APACHE_LOG_DIR}/wordpress-error.log
+    CustomLog \${APACHE_LOG_DIR}/wordpress-access.log combined
 </VirtualHost>
 APACHE_CONFIG
 
@@ -228,17 +257,44 @@ chmod 0640 "$wordpress_root/wp-config.php"
 apache2ctl configtest
 systemctl restart apache2
 
-install -m 0600 /dev/null "$credentials_file"
-{
-  printf 'WordPress URL: %s\n' "$wordpress_url"
-  printf 'WordPress admin user: %s\n' "$wordpress_admin_user"
-  printf 'WordPress admin password: %s\n' "$wordpress_admin_password"
-  printf 'MariaDB database: %s\n' "$database_name"
-  printf 'MariaDB user: %s\n' "$database_user"
-  printf 'MariaDB password: %s\n' "$database_password"
-} > "$credentials_file"
+install -d -o root -g root -m 0700 "$certbot_credentials_directory"
+install -o root -g root -m 0600 /dev/null "$certbot_credentials_file"
+printf 'dns_cloudflare_api_token = %s\n' "$cloudflare_api_token" > "$certbot_credentials_file"
+rm -f -- "$bootstrap_directory/cloudflare-api-token"
+unset cloudflare_api_token
+
+if certbot run \
+  --non-interactive \
+  --agree-tos \
+  --email "$certificate_email" \
+  --authenticator dns-cloudflare \
+  --dns-cloudflare-credentials "$certbot_credentials_file" \
+  --dns-cloudflare-propagation-seconds 90 \
+  --installer apache \
+  --redirect \
+  --domain "$wordpress_domain"; then
+
+  systemctl enable --now certbot.timer
+
+  wordpress_url="https://$wordpress_domain"
+  php -d memory_limit=512M /usr/local/bin/wp option update home "$wordpress_url" \
+    --allow-root \
+    --path="$wordpress_root"
+  php -d memory_limit=512M /usr/local/bin/wp option update siteurl "$wordpress_url" \
+    --allow-root \
+    --path="$wordpress_root"
+
+  apache2ctl configtest
+  systemctl reload apache2
+
+  echo "WordPress installation completed at $wordpress_url"
+else
+  echo "WARNING: Certbot failed. WordPress is running at http://$wordpress_domain (HTTP only)."
+  echo "Fix the issue and re-run Certbot manually:"
+  echo "  sudo certbot run --non-interactive --agree-tos --email $certificate_email \\"
+  echo "    --authenticator dns-cloudflare --dns-cloudflare-credentials $certbot_credentials_file \\"
+  echo "    --dns-cloudflare-propagation-seconds 90 --installer apache --redirect \\"
+  echo "    --domain $wordpress_domain"
+fi
 
 touch "$completion_file"
-
-echo "WordPress installation completed at $wordpress_url"
-echo "Credentials were saved to $credentials_file"

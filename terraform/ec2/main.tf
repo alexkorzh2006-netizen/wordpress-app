@@ -30,6 +30,9 @@ resource "aws_instance" "wordpress" {
     wordpress_admin_email_b64       = base64encode(var.wordpress_admin_email)
     wordpress_admin_password_b64    = base64encode(random_password.wordpress_admin.result)
     wordpress_database_password_b64 = base64encode(random_password.wordpress_database.result)
+    wordpress_domain_b64            = base64encode(var.wordpress_domain)
+    certificate_email_b64           = base64encode(var.certificate_email)
+    cloudflare_api_token_b64        = base64encode(var.cloudflare_api_token)
   })
   user_data_replace_on_change = true
 

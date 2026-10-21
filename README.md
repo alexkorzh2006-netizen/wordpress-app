@@ -82,8 +82,14 @@ Do not put the token in `.tfvars`. Load it without writing it to shell history:
 ```bash
 read -rsp "Cloudflare API token: " CLOUDFLARE_API_TOKEN
 export CLOUDFLARE_API_TOKEN
+export TF_VAR_cloudflare_api_token="$CLOUDFLARE_API_TOKEN"
 echo
 ```
+
+Terraform uses `CLOUDFLARE_API_TOKEN` for the DNS record and passes the same
+token to cloud-init through the sensitive `TF_VAR_cloudflare_api_token`
+variable. The installer stores it in a root-only Certbot credentials file so
+automatic DNS-01 renewal continues to work.
 
 ## Deploy
 
@@ -117,11 +123,13 @@ ssh-keygen -R "$VPN_IP" 2>/dev/null || true
 ssh-keyscan -H "$VPN_IP" >> "$HOME/.ssh/known_hosts"
 ```
 
-WordPress installs independently on the other EC2 instance through cloud-init.
-Its private URL is available from Terraform immediately, but the application
-can take several minutes to finish installing.
+WordPress, Certbot, and the HTTPS certificate install independently on the
+other EC2 instance through cloud-init. The installer completes the Cloudflare
+DNS-01 challenge, enables certificate renewal, and changes the WordPress URLs
+to the HTTPS domain. The URL is available from Terraform immediately, but the
+installation can take several minutes to finish.
 
-### 3. Configure OpenVPN and the HTTPS certificate
+### 3. Configure OpenVPN
 
 ```bash
 cd ansible
@@ -133,16 +141,14 @@ ansible-galaxy install -r requirements.yml
 ```
 
 The inventory already uses the AWS profile `default`. Check that it discovers
-both tagged instances and creates the
-`role_openvpn` and `role_wordpress` groups:
+the tagged instances and creates the `role_openvpn` group:
 
 ```bash
 ansible-inventory --graph
 ```
 
-The group variables read the approved SSH and VPN CIDRs, domain, certificate
-email, VPN address, and private-key path from Terraform outputs. Keep
-`CLOUDFLARE_API_TOKEN` exported and run the playbook without extra arguments:
+The group variables read the approved SSH and VPN CIDRs from Terraform outputs.
+Run the playbook without extra arguments:
 
 ```bash
 ansible-playbook playbook.yml
@@ -150,11 +156,7 @@ ansible-playbook playbook.yml
 cd ..
 ```
 
-Ansible first configures `role_openvpn`. It then reaches `role_wordpress`
-through the VPN EC2 instance as an SSH jump host, installs Certbot's Apache and
-Cloudflare plugins, requests the certificate with DNS-01, enables automatic
-renewal, and changes the WordPress URLs to the HTTPS domain. The VPN client
-profile is written to:
+Ansible configures only `role_openvpn`. The VPN client profile is written to:
 
 ```text
 ansible/client-configs/admin-wordpress-openvpn.ovpn
@@ -205,14 +207,12 @@ dig +short "$(terraform -chdir=terraform/ec2 output -raw wordpress_domain)"
 curl -I "$(terraform -chdir=terraform/ec2 output -raw wordpress_url)"
 ```
 
-Check Certbot renewal on the WordPress host through the SSH jump host:
+Check Certbot renewal on the WordPress host after connecting to the VPN:
 
 ```bash
-(
-  cd ansible
-  ansible role_wordpress --become --module-name command \
-    --args 'certbot renew --dry-run'
-)
+WP_IP="$(terraform -chdir=terraform/ec2 output -raw wordpress_private_ip)"
+ssh -i "$HOME/.ssh/wordpress-host-key.pem" ubuntu@"$WP_IP" \
+  'sudo certbot renew --dry-run'
 ```
 
 Check the OpenVPN service through its public endpoint:
